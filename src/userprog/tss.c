@@ -98,6 +98,8 @@ tss_get (void)
 
 /* Sets the ring 0 stack pointer in the TSS to point to the end
    of the thread stack. */
+// task state segment，task切换的时候的现场信息
+// 把TSS的ring 0 stack pointer指向当前线程的栈指针的尾部
 void
 tss_update (void) 
 {

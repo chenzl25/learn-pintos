@@ -260,9 +260,11 @@ thread_name (void)
 /* Returns the running thread.
    This is running_thread() plus a couple of sanity checks.
    See the big comment at the top of thread.h for details. */
+// 返回当前在运行着的线程
 struct thread *
 thread_current (void) 
 {
+  // 获取正在运行的线程
   struct thread *t = running_thread ();
   
   /* Make sure T is really a thread.
@@ -270,6 +272,8 @@ thread_current (void)
      have overflowed its stack.  Each thread has less than 4 kB
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
+  // 断言获得的是当前线程，因为如果线程拥有的stack overflow了的话就导致奇怪的结果
+  // 所以要检查 
   ASSERT (is_thread (t));
   ASSERT (t->status == THREAD_RUNNING);
 
@@ -306,19 +310,25 @@ thread_exit (void)
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
+// 让当前的线程交出CPU
 void
 thread_yield (void) 
 {
+  // 获取当前的线程
   struct thread *cur = thread_current ();
   enum intr_level old_level;
-  
+  // 断言当前的中断是软中断
   ASSERT (!intr_context ());
-
+  // 禁止中断
   old_level = intr_disable ();
+  // 如果当前的线程不是idle线程就把线程加入到ready队列中
   if (cur != idle_thread) 
     list_push_back (&ready_list, &cur->elem);
+  // 修改线程状态
   cur->status = THREAD_READY;
+  // 开始调度
   schedule ();
+  // 恢复中断
   intr_set_level (old_level);
 }
 
@@ -432,8 +442,9 @@ kernel_thread (thread_func *function, void *aux)
   function (aux);       /* Execute the thread function. */
   thread_exit ();       /* If function() returns, kill the thread. */
 }
-
+
 /* Returns the running thread. */
+// 返回正在运行着的线程
 struct thread *
 running_thread (void) 
 {
@@ -443,11 +454,13 @@ running_thread (void)
      down to the start of a page.  Because `struct thread' is
      always at the beginning of a page and the stack pointer is
      somewhere in the middle, this locates the curent thread. */
+  // 通过汇编获取CPU的栈指针，再通过pg_round_down来获取当前线程的指针
   asm ("mov %%esp, %0" : "=g" (esp));
   return pg_round_down (esp);
 }
 
 /* Returns true if T appears to point to a valid thread. */
+// 通过线程的magic来判断是否是线程
 static bool
 is_thread (struct thread *t)
 {
@@ -490,6 +503,7 @@ alloc_frame (struct thread *t, size_t size)
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
+// 如果ready队列为空就返回idle_thead，否则取出ready队列的第一个线程来返回
 static struct thread *
 next_thread_to_run (void) 
 {
@@ -518,18 +532,22 @@ next_thread_to_run (void)
 void
 thread_schedule_tail (struct thread *prev)
 {
+  // 获取当前运行的线程，这里再运行的线程是switch后的线程了
   struct thread *cur = running_thread ();
-  
+  // 断言中断已经被关闭
   ASSERT (intr_get_level () == INTR_OFF);
 
   /* Mark us as running. */
+  // 设置current-thread为正在运行
   cur->status = THREAD_RUNNING;
 
   /* Start new time slice. */
+  // 重新计算线程的ticks，重新计算线程时间切换片
   thread_ticks = 0;
 
 #ifdef USERPROG
   /* Activate the new address space. */
+  // 调用process_activate触发新的地址空间
   process_activate ();
 #endif
 
@@ -538,9 +556,11 @@ thread_schedule_tail (struct thread *prev)
      pull out the rug under itself.  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
+     // 如果我们切换的线程是dying的话就进行palloc_free_page
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
+      // 利用page管理机制来清理掉prev指向的page
       palloc_free_page (prev);
     }
 }
@@ -555,16 +575,19 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
+  // 获取当前的线程和下一个要切换到的线程
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
+  // 断言断言关闭了，当前的线程已经加入到ready队列，next是一个线程
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
-
+  // 如果不是只剩下一个线程，就进行切换
   if (cur != next)
     prev = switch_threads (cur, next);
+  // 最后处理
   thread_schedule_tail (prev);
 }
 

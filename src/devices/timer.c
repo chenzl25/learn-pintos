@@ -67,17 +67,22 @@ timer_calibrate (void)
 }
 
 /* Returns the number of timer ticks since the OS booted. */
+// 返回当前的ticks
+// 会用到禁止中断来保证原子行操作
 int64_t
 timer_ticks (void) 
 {
+  // 禁止中断
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
+  // 回复之前的中断状态(开启或关闭)
   intr_set_level (old_level);
   return t;
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
+// 返回从给定的then开始到现在的tick差
 int64_t
 timer_elapsed (int64_t then) 
 {
@@ -86,14 +91,16 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+// 睡眠长度为ticks时间
 void
 timer_sleep (int64_t ticks) 
 {
+  // 获取当前的时间（以tick来计算）
   int64_t start = timer_ticks ();
-
+  // 断言现在中断是开启的，因为不开启的或就会一直循环下去
   ASSERT (intr_get_level () == INTR_ON);
   while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+    thread_yield (); //调用线程的yield函数
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

@@ -61,6 +61,7 @@ void intr_handler (struct intr_frame *args);
 static void unexpected_interrupt (const struct intr_frame *);
 
 /* Returns the current interrupt status. */
+// 获取当前中断的状态
 enum intr_level
 intr_get_level (void) 
 {
@@ -70,6 +71,7 @@ intr_get_level (void)
      value off the stack into `flags'.  See [IA32-v2b] "PUSHF"
      and "POP" and [IA32-v3a] 5.8.1 "Masking Maskable Hardware
      Interrupts". */
+  // 通过汇编来获取中断状态
   asm volatile ("pushfl; popl %0" : "=g" (flags));
 
   return flags & FLAG_IF ? INTR_ON : INTR_OFF;
@@ -77,6 +79,7 @@ intr_get_level (void)
 
 /* Enables or disables interrupts as specified by LEVEL and
    returns the previous interrupt status. */
+// 设置中断的状态，根据状态来条用intr_enable() or intr_disable
 enum intr_level
 intr_set_level (enum intr_level level) 
 {
@@ -84,22 +87,26 @@ intr_set_level (enum intr_level level)
 }
 
 /* Enables interrupts and returns the previous interrupt status. */
+// 开启中断模式，并返回之前的中断状态
 enum intr_level
 intr_enable (void) 
 {
   enum intr_level old_level = intr_get_level ();
+  // 断言不是外部(硬)中断
   ASSERT (!intr_context ());
 
   /* Enable interrupts by setting the interrupt flag.
 
      See [IA32-v2b] "STI" and [IA32-v3a] 5.8.1 "Masking Maskable
      Hardware Interrupts". */
+  // 通过汇编是实现中断的开启
   asm volatile ("sti");
 
   return old_level;
 }
 
 /* Disables interrupts and returns the previous interrupt status. */
+// 禁止中断，并返回之前的中断状态
 enum intr_level
 intr_disable (void) 
 {
@@ -108,6 +115,7 @@ intr_disable (void)
   /* Disable interrupts by clearing the interrupt flag.
      See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
      Hardware Interrupts". */
+  // 通过汇编来实现中断的禁止（把一个标志位置为0）
   asm volatile ("cli" : : : "memory");
 
   return old_level;
@@ -208,6 +216,7 @@ intr_register_int (uint8_t vec_no, int dpl, enum intr_level level,
 
 /* Returns true during processing of an external interrupt
    and false at all other times. */
+// 如果当前中断是外部中断就返回true，否则false
 bool
 intr_context (void) 
 {

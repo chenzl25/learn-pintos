@@ -119,12 +119,15 @@ process_exit (void)
 /* Sets up the CPU for running user code in the current
    thread.
    This function is called on every context switch. */
+// 这个函数是在上下文切换的时候调用的
 void
 process_activate (void)
 {
+  // 获取当前运行的线程
   struct thread *t = thread_current ();
 
   /* Activate thread's page tables. */
+  // 激活线程的page table
   pagedir_activate (t->pagedir);
 
   /* Set thread's kernel stack for use in processing

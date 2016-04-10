@@ -18,14 +18,17 @@
 #define PGSHIFT 0                          /* Index of first offset bit. */
 #define PGBITS  12                         /* Number of offset bits. */
 #define PGSIZE  (1 << PGBITS)              /* Bytes in a page. */
+// PGMASK就是一个12bits的1
 #define PGMASK  BITMASK(PGSHIFT, PGBITS)   /* Page offset bits (0:12). */
 
 /* Offset within a page. */
+// 返回page的offset，实现方法是把page的指针和PGMASK做与操作
 static inline unsigned pg_ofs (const void *va) {
   return (uintptr_t) va & PGMASK;
 }
 
 /* Virtual page number. */
+// 返回page的编号
 static inline uintptr_t pg_no (const void *va) {
   return (uintptr_t) va >> PGBITS;
 }
@@ -36,6 +39,9 @@ static inline void *pg_round_up (const void *va) {
 }
 
 /* Round down to nearest page boundary. */
+// 这里涉及了页面的设计，PGMASK就是一个12bits的1，取反了就是0
+// 再做与操作，相当与获得了线程指针的位置
+// ps： va是CPU栈指针
 static inline void *pg_round_down (const void *va) {
   return (void *) ((uintptr_t) va & ~PGMASK);
 }

@@ -216,6 +216,7 @@ pagedir_set_accessed (uint32_t *pd, const void *vpage, bool accessed)
 
 /* Loads page directory PD into the CPU's page directory base
    register. */
+// 用汇编将当前线程的pagedir存到cr3中，作用就是activate了当前线程的pagedir
 void
 pagedir_activate (uint32_t *pd) 
 {

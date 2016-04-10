@@ -114,34 +114,39 @@ palloc_get_page (enum palloc_flags flags)
 }
 
 /* Frees the PAGE_CNT pages starting at PAGES. */
+// free掉多个page
 void
 palloc_free_multiple (void *pages, size_t page_cnt) 
 {
+  // page 缓存
   struct pool *pool;
   size_t page_idx;
-
+  // 断言page的offset是0
   ASSERT (pg_ofs (pages) == 0);
   if (pages == NULL || page_cnt == 0)
     return;
-
+  // 判断pages是来自kernel-pool还是user-pool
   if (page_from_pool (&kernel_pool, pages))
     pool = &kernel_pool;
   else if (page_from_pool (&user_pool, pages))
     pool = &user_pool;
   else
     NOT_REACHED ();
-
+  // page的id就是page的编号减去page-pool->base的编号
   page_idx = pg_no (pages) - pg_no (pool->base);
 
-#ifndef NDEBUG
+#ifndef NDEBUG  
+  // 清空页
   memset (pages, 0xcc, PGSIZE * page_cnt);
 #endif
-
+  // 断言位图pool->used_map page_idx开始的后慢page_cnt个page是true的
   ASSERT (bitmap_all (pool->used_map, page_idx, page_cnt));
+  // 设置从page_idx开始的page_cnt为false
   bitmap_set_multiple (pool->used_map, page_idx, page_cnt, false);
 }
 
 /* Frees the page at PAGE. */
+// free掉一个page，调用palloc_free_multiple来实现
 void
 palloc_free_page (void *page) 
 {
@@ -171,12 +176,14 @@ init_pool (struct pool *p, void *base, size_t page_cnt, const char *name)
 
 /* Returns true if PAGE was allocated from POOL,
    false otherwise. */
+// 如果page是allocate来自pool的话就返回true
 static bool
 page_from_pool (const struct pool *pool, void *page) 
 {
+  // 获取page的编号和pool的开始和结束编号
   size_t page_no = pg_no (page);
   size_t start_page = pg_no (pool->base);
   size_t end_page = start_page + bitmap_size (pool->used_map);
-
+  // 通过编号来判断是否再pool中
   return page_no >= start_page && page_no < end_page;
 }

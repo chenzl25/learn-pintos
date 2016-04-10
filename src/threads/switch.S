@@ -23,6 +23,7 @@ switch_threads:
 	#
 	# This stack frame must match the one set up by thread_create()
 	# in size.
+	# save cur线程的寄存器
 	pushl %ebx
 	pushl %ebp
 	pushl %esi
@@ -33,10 +34,12 @@ switch_threads:
 	mov thread_stack_ofs, %edx
 
 	# Save current stack pointer to old thread's stack, if any.
+	# 把cur的stack指针存在cur的栈中
 	movl SWITCH_CUR(%esp), %eax
 	movl %esp, (%eax,%edx,1)
 
 	# Restore stack pointer from new thread's stack.
+	# 恢复next的栈指针
 	movl SWITCH_NEXT(%esp), %ecx
 	movl (%ecx,%edx,1), %esp
 
