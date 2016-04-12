@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 /* States in a thread's life cycle. */
+// 线程的状态
 enum thread_status
   {
     THREAD_RUNNING,     /* Running thread. */
@@ -100,6 +101,8 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+    // 为block附加的阻塞时间成员
+    int64_t block_ticks;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -137,5 +140,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+// my function
+void dec_block_ticks_if_thread_bolocked(struct thread *t, void *aux UNUSED);
 
 #endif /* threads/thread.h */
