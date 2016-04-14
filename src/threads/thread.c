@@ -253,18 +253,34 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
   // 恢复中断原来的状态
+  // printf("%d\n", thread_get_priority());
   intr_set_level (old_level);
 
   /* Add to run queue. */
   // 把线程加入到准备队列，这里就会马上进行调度了，尽管还没返回
   thread_unblock (t);
   // my_add
-  if (t->priority > thread_get_priority()) {
+  if (thread_get_priority_by_thread(t) > thread_get_priority()) {
     thread_yield();
+    // enum intr_level old_level_;
+    // old_level_ = intr_disable ();
+    // intr_set_level (old_level_);
+
+    // printf("-----------\n");
+    // printf("-----------\n%d\n-----------\n\n", thread_get_priority());
+    // thread_foreach (print_thread, 0);
+    // printf("-----------\n");
+    
+
+    
   }
   return tid;
 }
-
+void
+print_thread(struct thread *t, void *aux UNUSED) {
+  ASSERT(is_thread(t));
+  printf("%s: %d\n", t->name, thread_get_priority_by_thread(t));
+}
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -429,6 +445,9 @@ thread_set_priority (int new_priority)
 }
 
 void update_donated_priority(void) {
+  if (thread_current()->chain_donate_mark == 1) {
+    return;
+  }
   int donated_priority = -1;
   if (!list_empty(&(thread_current ()->holding_locks))) {
     struct list_elem *e;   
@@ -444,6 +463,25 @@ void update_donated_priority(void) {
   }
   thread_current ()->donated_priority = donated_priority;
 }
+void update_donated_priority_by_thread(struct thread* t) {
+  if (t->chain_donate_mark == 1) {
+    return;
+  }
+  int donated_priority = -1;
+  if (!list_empty(&(t->holding_locks))) {
+    struct list_elem *e;   
+    struct list* hoding_locks_ptr = &(t->holding_locks);
+    for (e = list_begin (hoding_locks_ptr); e != list_end (hoding_locks_ptr);
+       e = list_next (e))
+    {
+      struct lock *l = list_entry (e, struct lock, elem);
+      if (l->highest_priority_in_waiting_threads > donated_priority) {
+        donated_priority = l->highest_priority_in_waiting_threads;
+      }
+    }
+  }
+  t->donated_priority = donated_priority;
+}
 
 /* Returns the current thread's priority. */
 // 返回当前线程的优先级
@@ -454,7 +492,8 @@ thread_get_priority (void)
   old_level = intr_disable ();
   int max_priority = thread_current ()->priority;
   if (!list_empty(&(thread_current ()->holding_locks))) {
-    update_donated_priority();
+    // 这可能需要修改
+    // update_donated_priority();
     if (thread_current ()->donated_priority > max_priority) {
       max_priority = thread_current ()->donated_priority;
     }
@@ -636,6 +675,7 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->holding_locks);
   t->waiting_lock = NULL;
   t->donated_priority = -1;
+  t->chain_donate_mark = 0;
   // 加入到全体线程队列中
   // list_push_back (&all_list, &t->allelem);
   list_insert_ordered(&all_list, &t->allelem, priority_cmp, NULL);
@@ -782,8 +822,14 @@ bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *a
 void chain_donate(struct thread* t, int chain_donate_priority) {
   if (chain_donate_priority > thread_get_priority_by_thread(t)) {
     t->donated_priority = chain_donate_priority;
-    if (t->waiting_lock != NULL) {
-      chain_donate(t->waiting_lock->holder, chain_donate_priority);
+    t->chain_donate_mark = 1;
+  }
+   
+  if (t->waiting_lock != NULL && t->waiting_lock->holder != NULL) {
+    if (t->waiting_lock->highest_priority_in_waiting_threads < chain_donate_priority) {
+      t->waiting_lock->highest_priority_in_waiting_threads = chain_donate_priority;
+      // 链式传递优先级
     }
+    chain_donate(t->waiting_lock->holder, chain_donate_priority);
   }
 }

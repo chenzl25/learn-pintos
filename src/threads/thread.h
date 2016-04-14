@@ -108,6 +108,7 @@ struct thread
     // 正在等待获取的lock
     struct lock*  waiting_lock;
     int donated_priority;
+    int chain_donate_mark;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -153,5 +154,7 @@ bool lock_priority_cmp(const struct list_elem *a,
                        const struct list_elem *b,
                        void *aux);
 void update_donated_priority(void);
+void update_donated_priority_by_thread(struct thread* t);
 void chain_donate(struct thread* t, int chain_donate_priority);
+void print_thread(struct thread *t, void *aux UNUSED);
 #endif /* threads/thread.h */
