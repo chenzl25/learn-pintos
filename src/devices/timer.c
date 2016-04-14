@@ -103,12 +103,12 @@ timer_sleep (int64_t ticks)
   // 断言现在中断是开启的，因为不开启的或就会一直循环下去
   ASSERT (intr_get_level () == INTR_ON);
 
-  // enum intr_level old_level = intr_disable ();
-  // thread_current()->block_ticks = ticks;
-  // thread_block();
-  // intr_set_level(old_level);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield (); //调用线程的yield函数
+  enum intr_level old_level = intr_disable ();
+  thread_current()->block_ticks = ticks;
+  thread_block();
+  intr_set_level(old_level);
+  // while (timer_elapsed (start) < ticks) 
+  //   thread_yield (); //调用线程的yield函数
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

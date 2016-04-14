@@ -258,7 +258,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   // 把线程加入到准备队列，这里就会马上进行调度了，尽管还没返回
   thread_unblock (t);
-
+  // my_add
+  if (t->priority > thread_get_priority()) {
+    thread_yield();
+  }
   return tid;
 }
 
@@ -298,14 +301,14 @@ thread_unblock (struct thread *t)
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
-  // 断言要unblock的线程的block_tick为0了
-  // ASSERT (t->block_ticks == 0);
  
   // 禁止中断
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   // 把线程放到ready队列
-  list_push_back (&ready_list, &t->elem);
+  // list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, priority_cmp, NULL);
+
   // 修改线程状态到ready
   t->status = THREAD_READY;
   // 恢复中断禁止前的状态
@@ -388,7 +391,8 @@ thread_yield (void)
   old_level = intr_disable ();
   // 如果当前的线程不是idle线程就把线程加入到ready队列中
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    // list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem, priority_cmp, NULL);
   // 修改线程状态
   cur->status = THREAD_READY;
   // 开始调度
@@ -421,6 +425,24 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_yield();
+}
+
+void update_donated_priority(void) {
+  int donated_priority = -1;
+  if (!list_empty(&(thread_current ()->holding_locks))) {
+    struct list_elem *e;   
+    struct list* hoding_locks_ptr = &(thread_current ()->holding_locks);
+    for (e = list_begin (hoding_locks_ptr); e != list_end (hoding_locks_ptr);
+       e = list_next (e))
+    {
+      struct lock *l = list_entry (e, struct lock, elem);
+      if (l->highest_priority_in_waiting_threads > donated_priority) {
+        donated_priority = l->highest_priority_in_waiting_threads;
+      }
+    }
+  }
+  thread_current ()->donated_priority = donated_priority;
 }
 
 /* Returns the current thread's priority. */
@@ -428,9 +450,53 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
-}
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  int max_priority = thread_current ()->priority;
+  if (!list_empty(&(thread_current ()->holding_locks))) {
+    update_donated_priority();
+    if (thread_current ()->donated_priority > max_priority) {
+      max_priority = thread_current ()->donated_priority;
+    }
+    // struct list_elem *e;   
+    // struct list* hoding_locks_ptr = &(thread_current ()->holding_locks);
+    // for (e = list_begin (hoding_locks_ptr); e != list_end (hoding_locks_ptr);
+    //    e = list_next (e))
+    // {
+    //   struct lock *l = list_entry (e, struct lock, elem);
+    //   if (l->highest_priority_in_waiting_threads > max_priority) {
+    //     max_priority = l->highest_priority_in_waiting_threads;
+    //   }
+    // }
+    // return list_entry (
+    //           list_max(&(thread_current ()->holding_locks), lock_priority_cmp, NULL),
+    //           struct lock,
+    //           elem)->highest_priority_in_waiting_threads;
 
+  }
+  intr_set_level (old_level);
+  
+  return max_priority;
+}
+int thread_get_priority_by_thread(struct thread* t) {
+  int max_priority = t->priority;
+  if (!list_empty(&(t->holding_locks))) {
+    if (t->donated_priority > max_priority) {
+      max_priority = t->donated_priority;
+    }
+  }
+  
+  return max_priority;
+}
+// 用来比较锁的最大priority的cmp
+bool lock_priority_cmp(const struct list_elem *a,
+                       const struct list_elem *b,
+                       void *aux) {
+  struct lock *lock_a = list_entry (a, struct lock, elem);
+  struct lock *lock_b = list_entry (b, struct lock, elem);
+  return lock_a->highest_priority_in_waiting_threads > 
+         lock_b->highest_priority_in_waiting_threads;
+}
 /* Sets the current thread's nice value to NICE. */
 // 设置当前线程的nice值
 void
@@ -567,8 +633,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   // 初始化线程的阻塞时间为0
   t->block_ticks = 0;
+  list_init(&t->holding_locks);
+  t->waiting_lock = NULL;
+  t->donated_priority = -1;
   // 加入到全体线程队列中
-  list_push_back (&all_list, &t->allelem);
+  // list_push_back (&all_list, &t->allelem);
+  list_insert_ordered(&all_list, &t->allelem, priority_cmp, NULL);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -696,3 +766,24 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+// 自己实现的线程优先级比较
+bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *aux) {
+  struct thread *t_a = list_entry (a, struct thread, elem);
+  struct thread *t_b = list_entry (b, struct thread, elem);
+  // return t_a->priority > t_b->priority;
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  int priority_of_a = thread_get_priority_by_thread(t_a);
+  int priority_of_b = thread_get_priority_by_thread(t_b);
+  intr_set_level (old_level);
+  return priority_of_a > priority_of_b;
+}
+void chain_donate(struct thread* t, int chain_donate_priority) {
+  if (chain_donate_priority > thread_get_priority_by_thread(t)) {
+    t->donated_priority = chain_donate_priority;
+    if (t->waiting_lock != NULL) {
+      chain_donate(t->waiting_lock->holder, chain_donate_priority);
+    }
+  }
+}

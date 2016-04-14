@@ -103,6 +103,11 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
     // 为block附加的阻塞时间成员
     int64_t block_ticks;
+    // 正在拥有的lock队列
+    struct list holding_locks;
+    // 正在等待获取的lock
+    struct lock*  waiting_lock;
+    int donated_priority;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -143,5 +148,10 @@ int thread_get_load_avg (void);
 
 // my function
 void dec_block_ticks_if_thread_bolocked(struct thread *t, void *aux UNUSED);
-
+bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *aux);
+bool lock_priority_cmp(const struct list_elem *a,
+                       const struct list_elem *b,
+                       void *aux);
+void update_donated_priority(void);
+void chain_donate(struct thread* t, int chain_donate_priority);
 #endif /* threads/thread.h */

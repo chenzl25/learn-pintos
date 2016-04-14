@@ -68,7 +68,8 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      // list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered(&sema->waiters, &thread_current ()->elem, priority_cmp, NULL);
       thread_block ();
     }
   sema->value--;
@@ -114,6 +115,7 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
+    // list_sort (&(sema->waiters), priority_cmp, NULL);
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   sema->value++;
@@ -179,7 +181,9 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
+  lock->highest_priority_in_waiting_threads = -1;
 }
+
 
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
@@ -195,9 +199,25 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
+  // 更新再等待锁的线程中优先级的最大值
+  if (lock->highest_priority_in_waiting_threads < thread_get_priority()) {
+    lock->highest_priority_in_waiting_threads = thread_get_priority();
+    // 链式传递优先级
+    if (lock->holder != NULL && lock->holder->waiting_lock != NULL) {
+      chain_donate(lock->holder->waiting_lock->holder, thread_get_priority());
+    }
+  }
+  // 更新当前线程的waiting_lock
+  thread_current ()->waiting_lock = lock;
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  // 将持有的lock加入链表holding_locks
+  enum intr_level old_level;
+  old_level = intr_disable ();
+  thread_current ()->waiting_lock = NULL;  
+  list_push_back (&(thread_current ()->holding_locks), &lock->elem);
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -231,10 +251,29 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level;
+  old_level = intr_disable ();
   lock->holder = NULL;
-  sema_up (&lock->semaphore);
-}
+  // 将当前线程从holding_locks队列中去除
+  list_remove(&(lock->elem));
+  update_donated_priority();
+  if (list_empty(&((lock->semaphore).waiters))) {    
+    lock->highest_priority_in_waiting_threads = -1;
+  } else {
+    // 更新再等待锁的线程中优先级的最大值
+    lock->highest_priority_in_waiting_threads 
+      = 
+      thread_get_priority_by_thread(
+      list_entry (
+          list_max(&((lock->semaphore).waiters), priority_cmp, NULL), 
+          struct thread,
+          elem));
+  }
 
+  sema_up (&lock->semaphore);
+  thread_yield ();
+  intr_set_level (old_level);
+}
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds
    a lock would be racy.) */
@@ -295,7 +334,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  // list_push_back (&cond->waiters, &waiter.elem);
+  list_insert_ordered(&cond->waiters, &waiter.elem, priority_cmp, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -316,9 +356,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
+  if (!list_empty (&cond->waiters))  {
+    list_sort (&cond->waiters, priority_cmp, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
