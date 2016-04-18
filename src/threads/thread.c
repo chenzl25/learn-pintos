@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "fixed_point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -67,6 +68,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 // 自从上次线程yield到现在的ticks
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
+static fixed load_avg;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -106,7 +108,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
+  // init the load_avg
+  load_avg = int_to_fixed(0);
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -491,7 +494,7 @@ thread_get_priority (void)
   enum intr_level old_level;
   old_level = intr_disable ();
   int max_priority = thread_current ()->priority;
-  if (!list_empty(&(thread_current ()->holding_locks))) {
+  if (!list_empty(&(thread_current ()->holding_locks)) && !thread_mlfqs) {
     // 这可能需要修改
     // update_donated_priority();
     if (thread_current ()->donated_priority > max_priority) {
@@ -519,7 +522,7 @@ thread_get_priority (void)
 }
 int thread_get_priority_by_thread(struct thread* t) {
   int max_priority = t->priority;
-  if (!list_empty(&(t->holding_locks))) {
+  if (!list_empty(&(t->holding_locks)) && !thread_mlfqs) {
     if (t->donated_priority > max_priority) {
       max_priority = t->donated_priority;
     }
@@ -530,7 +533,7 @@ int thread_get_priority_by_thread(struct thread* t) {
 // 用来比较锁的最大priority的cmp
 bool lock_priority_cmp(const struct list_elem *a,
                        const struct list_elem *b,
-                       void *aux) {
+                       void *aux UNUSED) {
   struct lock *lock_a = list_entry (a, struct lock, elem);
   struct lock *lock_b = list_entry (b, struct lock, elem);
   return lock_a->highest_priority_in_waiting_threads > 
@@ -539,9 +542,11 @@ bool lock_priority_cmp(const struct list_elem *a,
 /* Sets the current thread's nice value to NICE. */
 // 设置当前线程的nice值
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  thread_current()->nice = nice;
+  recalulate_specific_thread_priority(thread_current(), NULL);
+  thread_yield ();
 }
 
 /* Returns the current thread's nice value. */
@@ -549,8 +554,7 @@ thread_set_nice (int nice UNUSED)
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -558,8 +562,7 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return round_fixed_to_int(mul_fixed_int(load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -567,10 +570,73 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return round_fixed_to_int(mul_fixed_int(thread_current()->recent_cpu,100));
 }
-
+
+void increase_running_thread_recent_cpu() {
+  if (thread_current() == idle_thread)
+    return;
+  thread_current()->recent_cpu = add_fixed_int(thread_current()->recent_cpu, 1);
+}
+void
+recalulate_specific_thread_recent_cpu(struct thread *t, void *aux UNUSED) {
+  ASSERT(is_thread(t));
+  if (t != idle_thread) {
+    // recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice.
+    // t->recent_cpu = (2*load_avg)/(2*load_avg + 1) * t->recent_cpu + t->nice;
+    t->recent_cpu = add_fixed_int(
+                      mul_fixed_fixed(
+                        div_fixed_fixed(
+                          2*load_avg,
+                          add_fixed_int(2*load_avg,1)
+                        ),
+                        t->recent_cpu
+                      ),
+                      t->nice
+                    );
+    recalulate_specific_thread_priority(t, NULL);
+  }
+}
+
+void recalculate_every_active_thread_recent_cup() {
+  recalculate_load_avg();
+  thread_foreach(recalulate_specific_thread_recent_cpu, NULL);
+}
+void
+recalulate_specific_thread_priority(struct thread *t, void *aux UNUSED) {
+  ASSERT(is_thread(t));
+  if (t == idle_thread)
+    return;
+  // priority = PRI_MAX - (recent_cpu / 4) - (nice * 2).
+  // t->priority = PRI_MAX - (t->recent_cpu / 4) - (t->nice * 2);
+  t->priority = fixed_to_int (
+                  sub_fixed_int(
+                    sub_int_fixed(
+                      PRI_MAX,
+                      div_fixed_int(t->recent_cpu, 4)
+                    ),  
+                    t->nice * 2
+                  )
+                );
+  if (t->priority > PRI_MAX) t->priority = PRI_MAX;
+  if (t->priority < PRI_MIN) t->priority = PRI_MIN;
+}
+
+void recalculate_every_active_thread_priority() {
+  thread_foreach(recalulate_specific_thread_priority, NULL);
+}
+void recalculate_load_avg() {
+  // load_avg = (59/60)*load_avg + (1/60)*list_size(&ready_list);
+  int active_thread_sizes = list_size(&ready_list);
+  if (thread_current() != idle_thread) {
+    active_thread_sizes++;
+  }
+  load_avg = add_fixed_fixed(
+              div_fixed_int(mul_int_fixed(59, load_avg),60),
+              div_int_int(active_thread_sizes,60)
+             );
+}
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -676,6 +742,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->waiting_lock = NULL;
   t->donated_priority = -1;
   t->chain_donate_mark = 0;
+  t->recent_cpu = int_to_fixed(0);
+  t->nice = 0;
   // 加入到全体线程队列中
   // list_push_back (&all_list, &t->allelem);
   list_insert_ordered(&all_list, &t->allelem, priority_cmp, NULL);
@@ -808,7 +876,7 @@ allocate_tid (void)
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 // 自己实现的线程优先级比较
-bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *aux) {
+bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *t_a = list_entry (a, struct thread, elem);
   struct thread *t_b = list_entry (b, struct thread, elem);
   // return t_a->priority > t_b->priority;
@@ -820,6 +888,7 @@ bool priority_cmp (const struct list_elem *a, const struct list_elem *b, void *a
   return priority_of_a > priority_of_b;
 }
 void chain_donate(struct thread* t, int chain_donate_priority) {
+  if (thread_mlfqs) return;
   if (chain_donate_priority > thread_get_priority_by_thread(t)) {
     t->donated_priority = chain_donate_priority;
     t->chain_donate_mark = 1;
@@ -833,3 +902,4 @@ void chain_donate(struct thread* t, int chain_donate_priority) {
     chain_donate(t->waiting_lock->holder, chain_donate_priority);
   }
 }
+

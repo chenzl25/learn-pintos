@@ -187,6 +187,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  if (thread_mlfqs) {
+    // 增加再运行的线程的 recent_cpu， 更新load_avg
+    increase_running_thread_recent_cpu();
+    if (ticks % TIMER_FREQ == 0) {
+      //更新每个线程的recent_cpu
+      recalculate_every_active_thread_recent_cup();
+    }
+    if (ticks % 4 == 0) {
+      //更新每个线程的priority
+      recalculate_every_active_thread_priority();
+    }
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

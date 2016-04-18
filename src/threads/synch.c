@@ -202,7 +202,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   // 更新再等待锁的线程中优先级的最大值
-  if (lock->highest_priority_in_waiting_threads < thread_get_priority()) {
+  if (lock->highest_priority_in_waiting_threads < thread_get_priority() ) {
     lock->highest_priority_in_waiting_threads = thread_get_priority();
     // 链式传递优先级
   }

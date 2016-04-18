@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "fixed_point.h"
 
 /* States in a thread's life cycle. */
 // 线程的状态
@@ -109,6 +110,8 @@ struct thread
     struct lock*  waiting_lock;
     int donated_priority;
     int chain_donate_mark;
+    fixed recent_cpu;
+    int nice;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -154,7 +157,14 @@ bool lock_priority_cmp(const struct list_elem *a,
                        const struct list_elem *b,
                        void *aux);
 void update_donated_priority(void);
+int thread_get_priority_by_thread(struct thread* t);
 void update_donated_priority_by_thread(struct thread* t);
 void chain_donate(struct thread* t, int chain_donate_priority);
 void print_thread(struct thread *t, void *aux UNUSED);
+void increase_running_thread_recent_cpu();
+void recalculate_every_active_thread_recent_cup();
+void recalculate_every_active_thread_priority();
+void recalculate_load_avg();
+void recalulate_specific_thread_recent_cpu(struct thread *t, void *aux UNUSED); 
+void recalulate_specific_thread_priority(struct thread *t, void *aux UNUSED);
 #endif /* threads/thread.h */
